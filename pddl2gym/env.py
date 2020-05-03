@@ -1,66 +1,76 @@
 import sys
+sys.path.append('/home/mjunyent/repos/pddl2gym') # so that pyperplan imports work  # TODO: look into this
+sys.path.append('/home/mjunyent/repos/pddl2gym/pddl2gym') # so that pyperplan imports work  # TODO: look into this
+sys.path.append('/home/mjunyent/repos/pddl2gym/pddl2gym/pyperplan_planner') # so that pyperplan imports work  # TODO: look into this
 
 from pyperplan_planner.pyperplan import _parse, _ground
 from collections import defaultdict
 import gym
+from pddl2gym.utils import to_tuple, to_string, get_objects_by_type
 
-
-class PDDLEnv(gym.Env): #TODO: use gym.GoalEnv?
+class PDDLSimulator:
     def __init__(self, domain_file, instance_file):
-        assert instance_file is not None
         self.problem = _parse(domain_file, instance_file)
-        self.actions = list(self.problem.domain.actions.values())
         self.task = _ground(self.problem)
-        self.operators = {(op.name[1:-1].split(' ')[0], tuple(op.name[1:-1].split(' ')[1:])): op for op in self.task.operators}
-        self.state = self.task.initial_state
+        self.operators = {to_tuple(op.name): op for op in self.task.operators}
+        self.objects_by_type = get_objects_by_type(self.problem)
 
-    def step(self, action, params=None):
-        if params is None: # Grounded action
-            res = action.split(" ")
-            action = res[0]
-            params = tuple(res[1:])
-        elif type(params) is not tuple:
-            params = tuple([params])
-        assert " " not in action
+    def get_initial_state(self):
+        return self.task.initial_state
 
+    def apply(self, state, action):
+        if type(action) is str:  # Str action
+            action = to_tuple(action)
         try:
-            op = self.operators[(action, params)]
+            op = self.operators[action]
         except KeyError:
-            raise Exception(f"Action {action} with params {params} not in possible operators (grounded actions).")
-        if not op.applicable(self.state):
-            raise Exception(f"Action {action}({params}) not applicable in state {self.state.as_atoms()}")
-        self.state = op.apply(self.state)
-        done = self.task.goal_reached(self.state)
-        reward = float(done)
-        return self.state, reward, done, {}
+            raise Exception(f"Action {action} not in possible operators (grounded actions).")
+        if not op.applicable(state):
+            raise Exception(f"Action {action} not applicable in state {state}")
+        return op.apply(state)
 
-    def reset(self):
-        self.state = self.task.initial_state
-        return self.state
+    def goal_reached(self, state):
+        return self.task.goal_reached(state)
 
-    def clone_state(self):
-        return self.state # TODO: do we need copy.deepcopy here? Also in initial_state.
-
-    def restore_state(self, state):
-        self.state = state
-
-    def get_applicable_actions(self, state=None):
-        if state is None:
-            state = self.state
+    def get_applicable_actions(self, state):
         applicable_actions = defaultdict(list)
         for (action, params), op in self.operators.items():
             if op.applicable(state):
                 applicable_actions[action].append(params)
         return applicable_actions
 
-    def get_applicable_grounded_actions(self, state=None):
+    def get_applicable_str_actions(self, state):
         actions = self.get_applicable_actions(state)
-        return [" ".join([a, " ".join(params)])for a, params_list in actions.items() for params in params_list]
+        return [to_string(a, params) for a, params_list in actions.items() for params in params_list]
+
+
+class PDDLEnv(gym.Env): #TODO: use gym.GoalEnv?
+    def __init__(self, domain_file, instance_file):
+        self.pddl = PDDLSimulator(domain_file, instance_file)
+        self.state = self.pddl.get_initial_state()
+
+    def step(self, action):
+        self.state = self.pddl.apply(self.state, action)
+        done = self.pddl.goal_reached(self.state)
+        reward = float(done)
+        return self.state, reward, done, {}
+
+    def reset(self):
+        self.state = self.pddl.get_initial_state()
+        return self.state
+
+    def clone_state(self):
+        return self.state # TODO: do we need copy.deepcopy here? Also after get_initial_state().
+
+    def restore_state(self, state):
+        self.state = state
+
 
 if __name__ == "__main__":
     import os
 
-    path = "../aibasel-downward-benchmarks/blocks/"
+    # path = "../aibasel-downward-benchmarks/blocks/"
+    path = "/home/mjunyent/repos/GP-learn-feats/pddl-encoding/domains/blocks"
     domain = "domain.pddl"
     instance = "probBLOCKS-4-0.pddl"
 

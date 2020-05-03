@@ -1,0 +1,6 @@
+(define (problem BLOCKS-5-CLEAR-X)
+(:domain BLOCKS)
+(:objects A B - salient C D E - block c1 c2 c3 c4 c5 - column)
+(:init (ON E B) (ON B A) (ON A C) (bottom C c1) (bottom D c2) (CLEAR E) (CLEAR D) (HAND-FREE) (empty c3) (empty c4) (empty c5))
+(:goal (AND (ON A B)))
+)
