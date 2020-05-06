@@ -1,26 +1,51 @@
-import sys
-sys.path.append('/home/mjunyent/repos/pddl2gym') # so that pyperplan imports work  # TODO: look into this
-sys.path.append('/home/mjunyent/repos/pddl2gym/pddl2gym') # so that pyperplan imports work  # TODO: look into this
-sys.path.append('/home/mjunyent/repos/pddl2gym/pddl2gym/pyperplan_planner') # so that pyperplan imports work  # TODO: look into this
-
-
 from gridenvs.world import GridObject, GridWorld
 from gridenvs.utils import Point, Colors
 from gridenvs.env import GridEnv
 from pddl2gym.env import PDDLSimulator
-from pddl2gym.utils import to_tuple, state_to_atoms_dict, get_atom_fixed_param
+from pddl2gym.utils import to_tuple, state_to_atoms_dict, get_atom_fixed_param, files_in_dir
 from collections import defaultdict
 import numpy as np
 import gym
 import os
 
 
-class Blocksworld(GridEnv):
+class Blocks(GridEnv):
     def __init__(self, domain_file, instance_file):
         self.pddl = PDDLSimulator(domain_file, instance_file)
         assert list(self.pddl.objects_by_type.keys()) == ["object"], "Wrong domain file?"
         self.n_blocks = len(self.pddl.objects_by_type["object"])
-        super(Blocksworld, self).__init__(n_actions=self.n_blocks, max_moves=100)
+        super(Blocks, self).__init__(n_actions=self.n_blocks, max_moves=100)
+
+    # def _new_get_reduced_actions(self, state=None):
+    #     if state is None:
+    #         state = self.state["atoms"]
+    #     applicable_actions = self.pddl.get_applicable_actions(state)
+    #
+    #     meta_action_variables = [('?x', 'object')]
+    #     meta_action_OR = {'pick-up': ('?x',), 'stack': ('?y', '?x'), 'put-down': ('?x',), 'unstack': ('?y', '?x')}
+    #
+    #     def get_idx(variable_values):
+    #         # TODO: combinations for more than one object
+    #         b = variable_values[0]
+    #         return self.pddl.objects_by_type['object'].index(b)
+    #
+    #     def get_variable_values(action_name, sig):
+    #         # TODO: combinations for more than one object
+    #         b = meta_action_variables[0][0]
+    #         param_idx = meta_action_OR[action_name].index(b)
+    #         return (sig[param_idx],) # TODO: return None if combination of variable values not in sig
+    #
+    #
+    #     indexed_actions = [None]*self.action_space.n
+    #     for action_name, signatures in applicable_actions.items():
+    #         if action_name in meta_action_OR:
+    #             for sig in signatures:
+    #                 v = get_variable_values(action_name, sig)
+    #                 if v is not None:
+    #                     idx = get_idx(v)
+    #                     assert indexed_actions[idx] is None, f"Trying to assign a grounded action to a meta-action that already has a value: {indexed_actions[idx]} <-- {(action_name, sig)}"
+    #                     indexed_actions[idx] = (action_name, sig)
+    #     return indexed_actions
 
     def get_reduced_actions(self, state=None):
         if state is None:
@@ -36,7 +61,10 @@ class Blocksworld(GridEnv):
             if "holding" in atoms:
                 hb = atoms["holding"][0][0]
                 if len(bp) == 0:
-                    action = ("put-down", (hb,))  # empty column
+                    if hb == b:
+                        action = ("put-down", (hb,))  # empty column
+                    else:
+                        action = None
                 else:
                     action = ("stack", (hb, bp[-1])) # column has at least one block, stack on top one
             else:
@@ -60,9 +88,9 @@ class Blocksworld(GridEnv):
 
         # Create a gridenvs object for each block
         state["world"] = GridWorld(grid_size)
-        colors = iter(Colors.distinguishable.items())
+        colors = iter(Colors.distinguishable_hex)
         for b in self.pddl.objects_by_type["object"]:
-            color_name, rgb = next(colors)
+            rgb = Colors.hex_to_rgb(next(colors))
             state["world"].add_object(GridObject(name=b, pos=(0,0), rgb=rgb))
 
         # Assign positions to gridenvs object according to the initial state
@@ -134,20 +162,41 @@ class Blocksworld(GridEnv):
 
 
 
-def blocksworld(problem_file):
-    path = "/home/mjunyent/repos/pddl2gym/pddl2gym/pddl/blocks"
-    domain_file = "domain.pddl"
-    env = Blocksworld(os.path.join(path, domain_file), os.path.join(path, problem_file))
-    return env
+# Register environments
+
+def register_envs():
+    registered_envs = {}
+    for p in ["pddl/Blocks/Track1/Untyped", "pddl/Blocks/Track1/Untyped/Additional"]:
+        path = os.path.join(os.path.dirname(__file__), p)
+        domain_path = os.path.join(path, "domain.pddl")
+        for problem_file in sorted(files_in_dir(path)):
+            if problem_file.endswith(".pddl") and problem_file != "domain.pddl":
+                if problem_file.startswith("probBLOCKS") or problem_file.startswith("probblocks"):
+                    _, i, j = problem_file.split(".")[0].split("-")  # output example: ['probBLOCKS', '4', '0']
+                    env_id = f'PDDL_Blocks_{i}_{j}-v0'
+                else:
+                    raise NotImplementedError(f"Environment id not specified for problem file {problem_file}")
+
+                try:
+                    instance_path = os.path.join(path, problem_file)
+                    gym.register(id=env_id,
+                                 entry_point='pddl2gym.blocks:Blocks',
+                                 nondeterministic=False,
+                                 kwargs={"domain_file": domain_path,
+                                         "instance_file": instance_path})
+                    registered_envs[env_id] = (domain_path, instance_path)
+                except gym.error.Error:
+                    pass
+
+    return registered_envs
 
 
-try:
-    gym.register(id=f'PDDL_Blocksworld_17_0-v0',
-                 entry_point=f'pddl2gym.blocksworld:blocksworld',
-                 nondeterministic=False,
-                 kwargs={"problem_file": "probBLOCKS-17-0.pddl"})
-except gym.error.Error:
-    pass
+registered_envs = register_envs()
+
+
 
 if __name__ == "__main__":
-    env = gym.make('PDDL_Blocksworld_17_0-v0')
+    print("Registered environments:")
+    for env_id in registered_envs:
+        print(f"\t{env_id}")
+        env = gym.make(env_id)

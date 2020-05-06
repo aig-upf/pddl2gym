@@ -1,24 +1,18 @@
-import sys
-sys.path.append('/home/mjunyent/repos/pddl2gym') # so that pyperplan imports work  # TODO: look into this
-sys.path.append('/home/mjunyent/repos/pddl2gym/pddl2gym') # so that pyperplan imports work  # TODO: look into this
-sys.path.append('/home/mjunyent/repos/pddl2gym/pddl2gym/pyperplan_planner') # so that pyperplan imports work  # TODO: look into this
-
-
 from gridenvs.world import GridObject, GridWorld
 from gridenvs.utils import Point, Colors
 from gridenvs.env import GridEnv
 from pddl2gym.env import PDDLSimulator
-from pddl2gym.utils import to_tuple, state_to_atoms_dict, get_atom_fixed_param
+from pddl2gym.utils import to_tuple, state_to_atoms_dict, get_atom_fixed_param, files_in_dir
 import numpy as np
 import gym
 import os
 
 
-class BlocksworldColumns(GridEnv):
+class BlocksColumns(GridEnv):
     def __init__(self, domain_file, instance_file):
         self.pddl = PDDLSimulator(domain_file, instance_file)
         assert all(k in ["salient", "block", "column"] for k in self.pddl.objects_by_type.keys()), "Wrong domain file?"
-        super(BlocksworldColumns, self).__init__(n_actions=len(self.pddl.objects_by_type["column"]), max_moves=100)
+        super(BlocksColumns, self).__init__(n_actions=len(self.pddl.objects_by_type["column"]), max_moves=100)
 
     def get_reduced_actions(self, state=None):
         if state is None:
@@ -54,14 +48,22 @@ class BlocksworldColumns(GridEnv):
         state = {}
 
         # Get grid size
-        all_blocks = self.pddl.objects_by_type["salient"] + self.pddl.objects_by_type["block"]
+        if "salient" in self.pddl.objects_by_type:
+            all_blocks = self.pddl.objects_by_type["salient"] + self.pddl.objects_by_type["block"]
+        else:
+            all_blocks = self.pddl.objects_by_type["block"]
         grid_size = (len(all_blocks), len(self.pddl.objects_by_type["column"]) + 1)
 
         # Create a gridenvs object for each block
         state["world"] = GridWorld(grid_size)
-        s = self.pddl.objects_by_type["salient"][0]
-        state["world"].add_object(GridObject(name=s, pos=(0, 0), rgb=Colors.red))
-        colors = iter(Colors.distinguishable.items())
+        if "salient" in self.pddl.objects_by_type:
+            salients = self.pddl.objects_by_type["salient"]
+            assert len(salients)< 3
+            salient_colors = iter([Colors.red, Colors.green, Colors.blue])
+            for s in salients:
+                state["world"].add_object(GridObject(name=s, pos=(0, 0), rgb=next(salient_colors)))
+
+        colors = iter(Colors.distinguishable_alphabet.items())
         for b in self.pddl.objects_by_type["block"]:
             color_name, rgb = next(colors)
             state["world"].add_object(GridObject(name=b, pos=(0,0), rgb=rgb))
@@ -140,21 +142,65 @@ class BlocksworldColumns(GridEnv):
             objs[0].pos = Point(world.grid_size[0] - 1, 0)
 
 
-def blocksworld_columns_clear(problem_file):
+def blocksworld_columns(problem_file):
     path = "/home/mjunyent/repos/pddl2gym/pddl2gym/pddl/blocks_columns"
     domain_file = "domain.pddl"
-    env = BlocksworldColumns(os.path.join(path, domain_file), os.path.join(path, problem_file))
+    env = BlocksColumns(os.path.join(path, domain_file), os.path.join(path, problem_file))
     return env
 
 
 try:
-    for blocks in [5, 15]:
-        gym.register(id=f'PDDL_BlocksworldColumns{blocks}-v0',
-                     entry_point=f'pddl2gym.blocksworld_columns:blocksworld_columns_clear',
+    for blocks in [5, 10, 15]:
+        gym.register(id=f'PDDL_BlocksworldColumnsClear{blocks}-v0',
+                     entry_point=f'pddl2gym.blocksworld_columns:blocks_columns',
                      nondeterministic=False,
                      kwargs={"problem_file": f"instance_{blocks}_clear_x_1.pddl"})
+    for blocks in [5, 10, 15]:
+        gym.register(id=f'PDDL_BlocksworldColumnsOn{blocks}-v0',
+                     entry_point=f'pddl2gym.blocksworld_columns:blocksworld_columns',
+                     nondeterministic=False,
+                     kwargs={"problem_file": f"instance_{blocks}_on_x_y.pddl"})
 except gym.error.Error:
     pass
 
+
+def register_envs():
+    registered_envs = {}
+    path = os.path.join(os.path.dirname(__file__), "pddl/blocks_columns")
+    domain_path = os.path.join(path, "domain.pddl")
+    for problem_file in sorted(files_in_dir(path)):
+        if problem_file.endswith(".pddl") and problem_file != "domain.pddl":
+            if problem_file.startswith("probBLOCKS"):
+                _, i, j = problem_file.split(".")[0].split("-")  # output example: ['probBLOCKS', '4', '0']
+                env_id = f'PDDL_BlocksColumns_{i}_{j}-v0'
+            elif problem_file.startswith("instance"):
+                _, i, t, _, _ = problem_file.split(".")[0].split("_")  # output example: ['instance', '15', 'clear', 'x', '1']
+                env_id = f'PDDL_BlocksColumns_{t}_{i}-v0'
+            elif problem_file.startswith("target"):
+                _, i, j = problem_file.split(".")[0].split("-")  # output example: ['target', '15', '0']
+                env_id = f'PDDL_BlocksColumns_target_{i}_{j}-v0'
+            else:
+                raise NotImplementedError(f"Environment id not specified for problem file {problem_file}")
+
+            try:
+                instance_path = os.path.join(path, problem_file)
+                gym.register(id=env_id,
+                             entry_point='pddl2gym.blocks_columns:BlocksColumns',
+                             nondeterministic=False,
+                             kwargs={"domain_file": domain_path,
+                                     "instance_file": instance_path})
+                registered_envs[env_id] = (domain_path, instance_path)
+            except gym.error.Error:
+                pass
+
+    return registered_envs
+
+
+registered_envs = register_envs()
+
+
 if __name__ == "__main__":
-    env = gym.make('PDDL_BlocksworldColumns5-v0')
+    print("Registered environments:")
+    for env_id in registered_envs:
+        print(f"\t{env_id}")
+        env = gym.make(env_id)

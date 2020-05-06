@@ -1,12 +1,13 @@
 import sys
-sys.path.append('/home/mjunyent/repos/pddl2gym') # so that pyperplan imports work  # TODO: look into this
-sys.path.append('/home/mjunyent/repos/pddl2gym/pddl2gym') # so that pyperplan imports work  # TODO: look into this
-sys.path.append('/home/mjunyent/repos/pddl2gym/pddl2gym/pyperplan_planner') # so that pyperplan imports work  # TODO: look into this
+import os
+module_path = os.path.dirname(__file__)
+sys.path.append(os.path.join(module_path, '/pyperplan_planner')) # so that pyperplan imports work  # TODO: look into this
 
-from pyperplan_planner.pyperplan import _parse, _ground
+from pddl2gym.pyperplan_planner.pyperplan import _parse, _ground
 from collections import defaultdict
 import gym
 from pddl2gym.utils import to_tuple, to_string, get_objects_by_type
+
 
 class PDDLSimulator:
     def __init__(self, domain_file, instance_file):
@@ -67,10 +68,7 @@ class PDDLEnv(gym.Env): #TODO: use gym.GoalEnv?
 
 
 if __name__ == "__main__":
-    import os
-
-    # path = "../aibasel-downward-benchmarks/blocks/"
-    path = "/home/mjunyent/repos/GP-learn-feats/pddl-encoding/domains/blocks"
+    path = os.path.join(module_path, "pddl/blocks")
     domain = "domain.pddl"
     instance = "probBLOCKS-4-0.pddl"
 
