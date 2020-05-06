@@ -1,7 +1,7 @@
 import sys
 import os
 module_path = os.path.dirname(__file__)
-sys.path.append(os.path.join(module_path, '/pyperplan_planner')) # so that pyperplan imports work  # TODO: look into this
+sys.path.append(os.path.join(module_path, 'pyperplan_planner')) # so that pyperplan imports work  # TODO: look into this
 
 from pddl2gym.pyperplan_planner.pyperplan import _parse, _ground
 from collections import defaultdict
