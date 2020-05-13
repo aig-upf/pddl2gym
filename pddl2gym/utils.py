@@ -21,12 +21,12 @@ def get_objects_by_type(problem):
     return {k: sorted(v) for k, v in d.items()}
 
 
-def state_to_atoms_dict(state):
-    atoms = defaultdict(list)
-    for atom in state:
-        name, params = to_tuple(atom)
-        atoms[name].append(params)
-    return dict(atoms)
+def to_atoms_dict(atoms):
+    atoms_dict = defaultdict(list)
+    for a in atoms:
+        name, params = to_tuple(a)
+        atoms_dict[name].append(params)
+    return dict(atoms_dict)
 
 
 def get_atom_fixed_param(atoms, name, param_idx, param_value):

@@ -1,38 +1,56 @@
-from gridenvs.world import GridObject, GridWorld
-from gridenvs.utils import Point, Colors
-from gridenvs.env import GridEnv
-from pddl2gym.env import PDDLSimulator
-from pddl2gym.utils import to_tuple, state_to_atoms_dict, get_atom_fixed_param, files_in_dir
-import numpy as np
+from gridenvs.world import GridObject
+from gridenvs.utils import Colors
+from pddl2gym.env import PDDLSimulator, PDDLGridEnv
+from pddl2gym.utils import to_tuple, to_atoms_dict, get_atom_fixed_param, files_in_dir
 import gym
 import os
 
 
-class BlocksColumns(GridEnv):
+class BlocksColumns(PDDLGridEnv):
     def __init__(self, domain_file, instance_file):
-        self.pddl = PDDLSimulator(domain_file, instance_file)
-        assert all(k in ["salient", "block", "column"] for k in self.pddl.objects_by_type.keys()), "Wrong domain file?"
-        super(BlocksColumns, self).__init__(n_actions=len(self.pddl.objects_by_type["column"]), max_moves=100)
+        pddl = PDDLSimulator(domain_file, instance_file)
+        assert all(k in ["salient", "block", "column"] for k in pddl.objects_by_type.keys()), "Wrong domain file?"
 
-    def get_reduced_actions(self, state=None):
-        if state is None:
-            state = self.state["atoms"]
-        applicable_actions = self.pddl.get_applicable_actions(state)
+        # Define block colors
+        self.block_colors = {}
+        salients = []
+        if "salient" in pddl.objects_by_type:
+            salients = pddl.objects_by_type["salient"]
+            assert len(salients)< 3
+            salient_colors = iter([Colors.red, Colors.green, Colors.blue])
+            for s in salients:
+                self.block_colors[s] = next(salient_colors)
 
-        atoms = state_to_atoms_dict(state)
+        colors_iter = iter(Colors.distinguishable_hex)
+        self.block_colors = {}
+        blocks = pddl.objects_by_type["block"]
+        for b in blocks:
+            self.block_colors[b] = Colors.hex_to_rgb(next(colors_iter))
+
+        # Get grid size
+        all_blocks = salients + blocks
+        grid_size = (len(all_blocks), len(pddl.objects_by_type["column"]) + 1)
+
+        super(BlocksColumns, self).__init__(pddl=pddl,
+                                            size=grid_size,
+                                            n_actions=len(pddl.objects_by_type["column"]),
+                                            max_moves=100)
+
+    def get_reduced_actions(self, atoms):
+        atoms_dict = to_atoms_dict(atoms)
 
         # one action per column
         actions = []
         for col in self.pddl.objects_by_type["column"]:
-            bp = self._get_block_pile(atoms, col)
-            if "holding" in atoms:
-                hb = atoms["holding"][0][0]
+            bp = self._get_block_pile(atoms_dict, col)
+            if "holding" in atoms_dict:
+                hb = atoms_dict["holding"][0][0]
                 if len(bp) == 0:
                     action = ("putdown", (hb, col))  # empty column
                 else:
                     action = ("stack", (hb, bp[-1])) # column has at least one block, stack on top one
             else:
-                assert "hand-free" in atoms
+                assert "hand-free" in atoms_dict
                 if len(bp) == 0:
                     action = None  # empty column, we cannot pick any block from there
                 elif len(bp) == 1:
@@ -40,51 +58,8 @@ class BlocksColumns(GridEnv):
                 else:
                     action = ("unstack", (bp[-1], bp[-2]))
 
-            assert action is None or action[1] in applicable_actions[action[0]], f"\n{self.state['world']}\nAction {action} not in {applicable_actions} for state {self.state['atoms']}"
             actions.append(action)
         return actions
-
-    def get_init_state(self):
-        state = {}
-
-        # Get grid size
-        if "salient" in self.pddl.objects_by_type:
-            all_blocks = self.pddl.objects_by_type["salient"] + self.pddl.objects_by_type["block"]
-        else:
-            all_blocks = self.pddl.objects_by_type["block"]
-        grid_size = (len(all_blocks), len(self.pddl.objects_by_type["column"]) + 1)
-
-        # Create a gridenvs object for each block
-        state["world"] = GridWorld(grid_size)
-        if "salient" in self.pddl.objects_by_type:
-            salients = self.pddl.objects_by_type["salient"]
-            assert len(salients)< 3
-            salient_colors = iter([Colors.red, Colors.green, Colors.blue])
-            for s in salients:
-                state["world"].add_object(GridObject(name=s, pos=(0, 0), rgb=next(salient_colors)))
-
-        colors = iter(Colors.distinguishable_alphabet.items())
-        for b in self.pddl.objects_by_type["block"]:
-            color_name, rgb = next(colors)
-            state["world"].add_object(GridObject(name=b, pos=(0,0), rgb=rgb))
-
-        # Assign positions to gridenvs object according to the initial state
-        state["atoms"] = self.pddl.get_initial_state()
-        self._update_objects(state["atoms"], state["world"])
-        return state
-
-    def update_environment(self, action):
-        if np.issubdtype(type(action), np.integer):
-            actions = self.get_reduced_actions()
-            assert action < len(actions), f"Action index {action} exceeds the number of actions ({len(actions)})"
-            action = actions[action]
-
-        if action is not None:
-            self.state["atoms"] = self.pddl.apply(self.state["atoms"], action)
-            self._update_objects(self.state["atoms"], self.state["world"])
-        done = self.pddl.goal_reached(self.state["atoms"])
-        reward = float(done)
-        return reward, done, {}
 
     def _get_block_pile(self, atoms_dict, col):  #ordered bottom to top
         blocks = []
@@ -100,7 +75,7 @@ class BlocksColumns(GridEnv):
                 blocks.append(params[0])
         return blocks
 
-    def _update_objects(self, atoms, world):
+    def get_grid_objects(self, atoms):
         on = dict()
         col_bottom = dict()
         holding_block = None
@@ -126,20 +101,23 @@ class BlocksColumns(GridEnv):
 
         assert len(col_bottom.keys()) == len(self.pddl.objects_by_type["column"])
 
+        objects = []
         for i, c in enumerate(self.pddl.objects_by_type["column"]):
             j = 0
             b = col_bottom[c]
             while b is not None:
-                objs = world.get_objects_by_names(b)
-                assert len(objs) == 1
-                objs[0].pos = Point(i, world.grid_size[1]-j-1)
+                objects.append(GridObject(name=b,
+                                          pos=(i, self.world.size[1] - j - 1),
+                                          rgb=self.block_colors[b]))
                 b = on[b]
                 j += 1
 
         if holding_block is not None:
-            objs = world.get_objects_by_names(holding_block)
-            assert len(objs) == 1
-            objs[0].pos = Point(world.grid_size[0] - 1, 0)
+            objects.append(GridObject(name=holding_block,
+                                      pos=(self.world.size[0] - 1, 0),
+                                      rgb=self.block_colors[holding_block]))
+
+        return objects
 
 
 def blocksworld_columns(problem_file):

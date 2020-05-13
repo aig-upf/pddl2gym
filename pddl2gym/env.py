@@ -7,6 +7,8 @@ from pddl2gym.pyperplan_planner.pyperplan import _parse, _ground
 from collections import defaultdict
 import gym
 from pddl2gym.utils import to_tuple, to_string, get_objects_by_type
+import numpy as np
+from gridenvs.env import GridEnv
 
 
 class PDDLSimulator:
@@ -65,6 +67,55 @@ class PDDLEnv(gym.Env): #TODO: use gym.GoalEnv?
 
     def restore_state(self, state):
         self.state = state
+
+
+class PDDLGridEnv(GridEnv):
+    def __init__(self, pddl, **kwargs):
+        self.pddl = pddl
+        super(PDDLGridEnv, self).__init__(using_immutable_states=True,
+                                          fixed_init_state=True,
+                                          **kwargs)
+
+    def get_init_state(self):
+        atoms = self.pddl.get_initial_state()
+        grid_objects = self.get_grid_objects(atoms)
+        return {"atoms": atoms, "grid_objects": grid_objects}
+
+    def get_next_state(self, state, action):
+        if np.issubdtype(type(action), np.integer):
+            actions = self.get_reduced_actions(state["atoms"])
+            assert action < len(actions), f"Action index {action} exceeds the number of actions ({len(actions)})"
+            action = actions[action]
+
+        if action is None:
+            return state, 0.0, False, {}
+
+        new_atoms = self.pddl.apply(state["atoms"], action)
+        done = self.pddl.goal_reached(new_atoms)
+        reward = float(done)
+
+        next_state = {"atoms": new_atoms,
+                      "grid_objects": self.get_grid_objects(new_atoms)}
+        return next_state, reward, done, {}
+
+    def get_objects_to_render(self, state):
+        return state["grid_objects"]
+
+    def get_indexed_actions(self, state=None):
+        if state is None:
+            state = self._state["state"]
+        return self.get_reduced_actions(state["atoms"])
+
+    def get_applicable_actions(self, state=None):
+        if state is None:
+            state = self._state["state"]
+        return self.pddl.get_applicable_actions(state["atoms"])
+
+    def get_reduced_actions(self, atoms):
+        raise NotImplementedError()
+
+    def get_grid_objects(self, atoms):
+        raise NotImplementedError()
 
 
 if __name__ == "__main__":
