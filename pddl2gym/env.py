@@ -101,6 +101,12 @@ class PDDLGridEnv(GridEnv):
     def get_objects_to_render(self, state):
         return state["grid_objects"]
 
+    def get_goal_obs(self):
+        goal_atoms = self.pddl.task.goals
+        grid_objects = self.get_grid_objects(goal_atoms)
+        goal_obs = self.world.render(grid_objects, size=self.pixel_size)
+        return goal_obs
+
     def get_indexed_actions(self, state=None):
         if state is None:
             state = self._state["state"]

@@ -65,6 +65,7 @@ class Blocks(PDDLGridEnv):
         return blocks
 
     def get_grid_objects(self, atoms):
+        blocks = self.pddl.objects_by_type["object"]
         on = dict()
         ontable = defaultdict(bool)
         holding_block = None
@@ -85,9 +86,18 @@ class Blocks(PDDLGridEnv):
             elif name == "handempty":
                 assert holding_block is None
 
+        # TODO: revise this, also try except on[b] below
+        if not any(ontable.values()):
+            on_blocks = set(on.values())
+            ontable_blocks = set(blocks) - on_blocks
+            if holding_block is not None:
+                ontable_blocks -= set(holding_block)
+            for b in ontable_blocks:
+                ontable[b] = True
+
 
         objects = []
-        for i, block in enumerate(self.pddl.objects_by_type["object"]):
+        for i, block in enumerate(blocks):
             if ontable[block]:
                 j = 0
                 b = block
@@ -95,7 +105,10 @@ class Blocks(PDDLGridEnv):
                     objects.append(GridObject(name=b,
                                               pos=(i, self.world.size[1]-j-1),
                                               rgb=self.block_colors[b]))
-                    b = on[b]
+                    try:
+                        b = on[b]
+                    except KeyError:
+                        break
                     j += 1
 
         if holding_block is not None:
