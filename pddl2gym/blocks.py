@@ -1,7 +1,7 @@
 from gridenvs.world import GridObject
 from gridenvs.utils import Colors
 from pddl2gym.env import PDDLSimulator, PDDLGridEnv
-from pddl2gym.utils import to_tuple, to_atoms_dict, get_atom_fixed_param, files_in_dir
+from pddl2gym.utils import parse_problem, to_tuple, to_string, to_atoms_dict, get_atom_fixed_param, files_in_dir
 from collections import defaultdict
 import gym
 import os
@@ -9,7 +9,7 @@ import os
 
 class Blocks(PDDLGridEnv):
     def __init__(self, domain_file, instance_file, max_moves=100):
-        pddl = PDDLSimulator(domain_file, instance_file)
+        pddl = PDDLSimulator(parse_problem(domain_file, instance_file))
         assert list(pddl.objects_by_type.keys()) == ["object"], "Wrong domain file?"
         blocks = pddl.objects_by_type["object"]
         self.n_blocks = len(blocks)
@@ -64,14 +64,12 @@ class Blocks(PDDLGridEnv):
                 blocks.append(params[0])
         return blocks
 
-    def get_grid_objects(self, atoms):
-        blocks = self.pddl.objects_by_type["object"]
-        on = dict()
+    def _read_atoms(self, atoms):
         ontable = defaultdict(bool)
+        on = dict()  # on[y] = x <-> on x y
         holding_block = None
         for a in atoms:
             name, signature = to_tuple(a)
-
             if name == "on":
                 b_top, b_bottom = signature
                 on[b_bottom] = b_top
@@ -85,17 +83,12 @@ class Blocks(PDDLGridEnv):
                 holding_block = signature[0]
             elif name == "handempty":
                 assert holding_block is None
+        return ontable, on, holding_block
 
-        # TODO: revise this, also try except on[b] below
-        if not any(ontable.values()):
-            on_blocks = set(on.values())
-            ontable_blocks = set(blocks) - on_blocks
-            if holding_block is not None:
-                ontable_blocks -= set(holding_block)
-            for b in ontable_blocks:
-                ontable[b] = True
+    def get_grid_objects(self, atoms):
+        ontable, on, holding_block = self._read_atoms(atoms)
 
-
+        blocks = self.pddl.objects_by_type["object"]
         objects = []
         for i, block in enumerate(blocks):
             if ontable[block]:
@@ -105,11 +98,10 @@ class Blocks(PDDLGridEnv):
                     objects.append(GridObject(name=b,
                                               pos=(i, self.world.size[1]-j-1),
                                               rgb=self.block_colors[b]))
-                    try:
-                        b = on[b]
-                    except KeyError:
-                        break
+                    b = on[b]
                     j += 1
+            else:
+                assert block in on.values() or block == holding_block
 
         if holding_block is not None:
             objects.append(GridObject(name=holding_block,
@@ -118,9 +110,54 @@ class Blocks(PDDLGridEnv):
 
         return objects
 
+    def get_atoms_from_reduced_set(self, atoms):
+        # We asume that, if not stated otherwise, all blocks are on the table and clear, and the hand is empty
+        ontable, on, holding_block = self._read_atoms(atoms)
+
+        deduced_atoms = []
+        blocks = self.pddl.objects_by_type["object"]
+        for b in blocks:
+            # b is ontable if it's not on a block or in the hand
+            if b not in on.values() and b != holding_block:
+                deduced_atoms.append(to_string('ontable', [b]))
+            # b is clear if it's not under a block or in the hand
+            if b not in on.keys() and b != holding_block:
+                deduced_atoms.append(to_string('clear', [b]))
+            if holding_block is None:
+                deduced_atoms.append(to_string('handempty', []))
+
+        return atoms.union(deduced_atoms)
 
 
-# Register environments
+def random_column_instance(domain, n_blocks):
+    from pddl2gym.pyperplan_planner.pddl.pddl import Problem, Predicate
+    from random import shuffle
+    assert list(domain.types.keys()) == ['object']
+    assert n_blocks <= 26
+
+    blocks = [chr(97+i) for i in range(n_blocks)]
+    block_type = domain.types['object']
+
+    column = blocks.copy()
+    shuffle(column)
+
+    init = []
+    for b in blocks:
+        init.append(Predicate('ontable', [(b, block_type)]))
+        init.append(Predicate('clear', [(b, block_type)]))
+    init.append(Predicate('handempty', []))
+
+    goal = []
+    for i in range(len(blocks)-1):
+        goal.append(Predicate('on', [(column[i], block_type), (column[i+1], block_type)]))
+
+    return Problem(name=f"random-column-{n_blocks}",
+                   domain=domain,
+                   objects={b: block_type for b in blocks},
+                   init=init,
+                   goal=goal)
+
+
 
 def register_envs():
     registered_envs = {}
@@ -149,8 +186,9 @@ def register_envs():
     return registered_envs
 
 
-registered_envs = register_envs()
 
+# Register environments
+registered_envs = register_envs()
 
 
 if __name__ == "__main__":

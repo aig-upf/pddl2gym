@@ -3,18 +3,19 @@ import os
 module_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(module_path, 'pyperplan_planner')) # so that pyperplan imports work  # TODO: look into this
 
-from pddl2gym.pyperplan_planner.pyperplan import _parse, _ground
+from pddl2gym.pyperplan_planner.grounding import ground
 from collections import defaultdict
 import gym
-from pddl2gym.utils import to_tuple, to_string, get_objects_by_type
+from pddl2gym.utils import to_tuple, to_string, get_objects_by_type, parse_problem
 import numpy as np
 from gridenvs.env import GridEnv
 
 
 class PDDLSimulator:
-    def __init__(self, domain_file, instance_file):
-        self.problem = _parse(domain_file, instance_file)
-        self.task = _ground(self.problem)
+    def __init__(self, problem):
+        self.problem = problem
+        self.task = ground(problem)
+
         self.operators = {to_tuple(op.name): op for op in self.task.operators}
         self.objects_by_type = get_objects_by_type(self.problem)
 
@@ -49,7 +50,7 @@ class PDDLSimulator:
 
 class PDDLEnv(gym.Env): #TODO: use gym.GoalEnv?
     def __init__(self, domain_file, instance_file):
-        self.pddl = PDDLSimulator(domain_file, instance_file)
+        self.pddl = PDDLSimulator(parse_problem(domain_file, instance_file))
         self.state = self.pddl.get_initial_state()
 
     def step(self, action):
@@ -63,7 +64,7 @@ class PDDLEnv(gym.Env): #TODO: use gym.GoalEnv?
         return self.state
 
     def clone_state(self):
-        return self.state # TODO: do we need copy.deepcopy here? Also after get_initial_state().
+        return self.state
 
     def restore_state(self, state):
         self.state = state
@@ -103,7 +104,11 @@ class PDDLGridEnv(GridEnv):
 
     def get_goal_obs(self):
         goal_atoms = self.pddl.task.goals
-        grid_objects = self.get_grid_objects(goal_atoms)
+        complete_goal_atoms = self.get_atoms_from_reduced_set(goal_atoms)
+        print(goal_atoms)
+        print(complete_goal_atoms)
+        raise
+        grid_objects = self.get_grid_objects(complete_goal_atoms)
         goal_obs = self.world.render(grid_objects, size=self.pixel_size)
         return goal_obs
 
@@ -123,6 +128,8 @@ class PDDLGridEnv(GridEnv):
     def get_grid_objects(self, atoms):
         raise NotImplementedError()
 
+    def get_atoms_from_reduced_set(self, atoms):
+        raise NotImplementedError()
 
 if __name__ == "__main__":
     path = os.path.join(module_path, "pddl/blocks")

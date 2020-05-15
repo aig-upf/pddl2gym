@@ -1,5 +1,17 @@
 from collections import defaultdict
 import os
+from pddl2gym.pyperplan_planner.pddl.parser import Parser
+
+
+def parse_domain(domain_file):
+    parser = Parser(domain_file, probFile=None)
+    return parser.parse_domain()
+
+
+def parse_problem(domain_file, problem_file):
+    parser = Parser(domain_file, problem_file)
+    domain = parser.parse_domain()
+    return parser.parse_problem(domain)  # domain can be found as an attribute of problem
 
 
 def to_tuple(str_predicate):
@@ -11,6 +23,7 @@ def to_tuple(str_predicate):
 def to_string(p, params=None):
     if params is None:
         p, params = p
+    assert type(params) in (list, tuple)
     return f"({p} {' '.join(params)})"
 
 
