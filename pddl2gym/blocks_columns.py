@@ -1,47 +1,22 @@
 from gridenvs.world import GridObject
 from gridenvs.utils import Colors
-from pddl2gym.env import PDDLSimulator, PDDLGridEnv
-from pddl2gym.utils import to_tuple, to_atoms_dict, get_atom_fixed_param, files_in_dir
+from pddl2gym.env import PDDLGridEnv, PDDLRepresentation
+from pddl2gym.simulator import PDDLProblemSimulator
+from pddl2gym.utils import to_tuple, to_atoms_dict, get_atom_fixed_param, files_in_dir, parse_problem
 import gym
 import os
 
 
-class BlocksColumns(PDDLGridEnv):
-    def __init__(self, domain_file, instance_file):
-        pddl = PDDLSimulator(domain_file, instance_file)
-        assert all(k in ["salient", "block", "column"] for k in pddl.objects_by_type.keys()), "Wrong domain file?"
+class BlocksColumns(PDDLRepresentation):
+    def get_n_actions(self, problem):
+        return len(problem.objects_by_type["column"])
 
-        # Define block colors
-        self.block_colors = {}
-        salients = []
-        if "salient" in pddl.objects_by_type:
-            salients = pddl.objects_by_type["salient"]
-            assert len(salients)< 3
-            salient_colors = iter([Colors.red, Colors.green, Colors.blue])
-            for s in salients:
-                self.block_colors[s] = next(salient_colors)
-
-        colors_iter = iter(Colors.distinguishable_hex)
-        self.block_colors = {}
-        blocks = pddl.objects_by_type["block"]
-        for b in blocks:
-            self.block_colors[b] = Colors.hex_to_rgb(next(colors_iter))
-
-        # Get grid size
-        all_blocks = salients + blocks
-        grid_size = (len(all_blocks), len(pddl.objects_by_type["column"]) + 1)
-
-        super(BlocksColumns, self).__init__(pddl=pddl,
-                                            size=grid_size,
-                                            n_actions=len(pddl.objects_by_type["column"]),
-                                            max_moves=100)
-
-    def get_reduced_actions(self, atoms):
+    def get_reduced_actions(self, problem, atoms):
         atoms_dict = to_atoms_dict(atoms)
 
         # one action per column
         actions = []
-        for col in self.pddl.objects_by_type["column"]:
+        for col in problem.objects_by_type["column"]:
             bp = self._get_block_pile(atoms_dict, col)
             if "holding" in atoms_dict:
                 hb = atoms_dict["holding"][0][0]
@@ -75,7 +50,23 @@ class BlocksColumns(PDDLGridEnv):
                 blocks.append(params[0])
         return blocks
 
-    def get_grid_objects(self, atoms):
+    def get_gridstate(self, problem, atoms):
+        columns = problem.objects_by_type["column"]
+
+        # Define block colors
+        salients = []
+        if "salient" in problem.objects_by_type:
+            salients = problem.objects_by_type["salient"]
+            assert len(salients)< 3
+            salient_colors = [Colors.red, Colors.green, Colors.blue]
+        blocks = problem.objects_by_type["block"]
+        block_colors = {b: c for b, c in zip(blocks, self.colors)}
+        block_colors.update({s: c for s, c in zip(salients, salient_colors)})
+
+        # Get grid size
+        all_blocks = salients + blocks
+        grid_size = (len(all_blocks), len(columns + 1))
+
         on = dict()
         col_bottom = dict()
         holding_block = None
@@ -99,47 +90,30 @@ class BlocksColumns(PDDLGridEnv):
             elif name == "hand-free":
                 assert holding_block is None
 
-        assert len(col_bottom.keys()) == len(self.pddl.objects_by_type["column"])
+        assert len(col_bottom.keys()) == len(columns)
 
         objects = []
-        for i, c in enumerate(self.pddl.objects_by_type["column"]):
+        for i, c in enumerate(columns):
             j = 0
             b = col_bottom[c]
             while b is not None:
                 objects.append(GridObject(name=b,
-                                          pos=(i, self.world.size[1] - j - 1),
-                                          rgb=self.block_colors[b]))
+                                          pos=(i, grid_size[1] - j - 1),
+                                          rgb=block_colors[b]))
                 b = on[b]
                 j += 1
 
         if holding_block is not None:
             objects.append(GridObject(name=holding_block,
-                                      pos=(self.world.size[0] - 1, 0),
-                                      rgb=self.block_colors[holding_block]))
+                                      pos=(grid_size[0] - 1, 0),
+                                      rgb=block_colors[holding_block]))
 
         return objects
 
 
-def blocksworld_columns(problem_file):
-    path = "/home/mjunyent/repos/pddl2gym/pddl2gym/pddl/blocks_columns"
-    domain_file = "domain.pddl"
-    env = BlocksColumns(os.path.join(path, domain_file), os.path.join(path, problem_file))
-    return env
-
-
-try:
-    for blocks in [5, 10, 15]:
-        gym.register(id=f'PDDL_BlocksworldColumnsClear{blocks}-v0',
-                     entry_point=f'pddl2gym.blocksworld_columns:blocks_columns',
-                     nondeterministic=False,
-                     kwargs={"problem_file": f"instance_{blocks}_clear_x_1.pddl"})
-    for blocks in [5, 10, 15]:
-        gym.register(id=f'PDDL_BlocksworldColumnsOn{blocks}-v0',
-                     entry_point=f'pddl2gym.blocksworld_columns:blocksworld_columns',
-                     nondeterministic=False,
-                     kwargs={"problem_file": f"instance_{blocks}_on_x_y.pddl"})
-except gym.error.Error:
-    pass
+def blocks_columns(domain_file, instance_file, path=None):
+    simulator = PDDLProblemSimulator(parse_problem(domain_file, instance_file, path))
+    return PDDLGridEnv(simulator=simulator, representation=BlocksColumns(), fixed_init_state=True, max_moves=100)
 
 
 def register_envs():
@@ -163,7 +137,7 @@ def register_envs():
             try:
                 instance_path = os.path.join(path, problem_file)
                 gym.register(id=env_id,
-                             entry_point='pddl2gym.blocks_columns:BlocksColumns',
+                             entry_point='pddl2gym.blocks_columns:blocks_columns',
                              nondeterministic=False,
                              kwargs={"domain_file": domain_path,
                                      "instance_file": instance_path})

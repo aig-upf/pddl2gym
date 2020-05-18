@@ -1,17 +1,24 @@
 from collections import defaultdict
 import os
-from pddl2gym.pyperplan_planner.pddl.parser import Parser
+from pddl.parser import Parser
 
 
-def parse_domain(domain_file):
+def parse_domain(domain_file, path=None):
+    if path is not None:
+        domain_file = os.path.join(path, domain_file)
     parser = Parser(domain_file, probFile=None)
     return parser.parse_domain()
 
 
-def parse_problem(domain_file, problem_file):
+def parse_problem(domain_file, problem_file, path=None):
+    if path is not None:
+        domain_file = os.path.join(path, domain_file)
+        problem_file = os.path.join(path, problem_file)
     parser = Parser(domain_file, problem_file)
     domain = parser.parse_domain()
-    return parser.parse_problem(domain)  # domain can be found as an attribute of problem
+    problem = parser.parse_problem(domain)  # domain can be found as an attribute of problem
+    problem.objects_by_type = get_objects_by_type(problem)
+    return problem
 
 
 def to_tuple(str_predicate):

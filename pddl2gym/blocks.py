@@ -1,35 +1,22 @@
 from gridenvs.world import GridObject
-from gridenvs.utils import Colors
-from pddl2gym.env import PDDLSimulator, PDDLGridEnv
-from pddl2gym.utils import parse_problem, to_tuple, to_string, to_atoms_dict, get_atom_fixed_param, files_in_dir
+from pddl2gym.env import PDDLRepresentation, PDDLGridEnv
+from pddl2gym.simulator import PDDLProblemSimulator, PDDLDomainSimulator
+from pddl2gym.utils import to_tuple, to_string, to_atoms_dict, get_atom_fixed_param, files_in_dir, parse_problem, parse_domain
 from collections import defaultdict
 import gym
 import os
 
 
-class Blocks(PDDLGridEnv):
-    def __init__(self, domain_file, instance_file, max_moves=100):
-        pddl = PDDLSimulator(parse_problem(domain_file, instance_file))
-        assert list(pddl.objects_by_type.keys()) == ["object"], "Wrong domain file?"
-        blocks = pddl.objects_by_type["object"]
-        self.n_blocks = len(blocks)
+class Blocks(PDDLRepresentation):
+    def get_n_actions(self, problem):
+        return len(problem.objects_by_type["object"])
 
-        colors_iter = iter(Colors.distinguishable_hex)
-        self.block_colors = {}
-        for b in blocks:
-            self.block_colors[b] = Colors.hex_to_rgb(next(colors_iter))
-
-        super(Blocks, self).__init__(pddl=pddl,
-                                     size=(self.n_blocks + 1, self.n_blocks + 1),
-                                     n_actions=self.n_blocks,
-                                     max_moves=max_moves)
-
-    def get_reduced_actions(self, atoms):
+    def get_reduced_actions(self, problem, atoms):
         atoms_dict = to_atoms_dict(atoms)
 
         # one action per column
         actions = []
-        for b in self.pddl.objects_by_type["object"]:
+        for b in problem.objects_by_type["object"]:
             bp = self._get_block_pile(atoms_dict, b)
             if "holding" in atoms_dict:
                 hb = atoms_dict["holding"][0][0]
@@ -85,10 +72,12 @@ class Blocks(PDDLGridEnv):
                 assert holding_block is None
         return ontable, on, holding_block
 
-    def get_grid_objects(self, atoms):
+    def get_gridstate(self, problem, atoms):
         ontable, on, holding_block = self._read_atoms(atoms)
+        blocks = problem.objects_by_type["object"]
+        block_colors = {b: c for b, c in zip(blocks, self.colors)}
+        gridsize = (len(blocks)+1, len(blocks)+1)
 
-        blocks = self.pddl.objects_by_type["object"]
         objects = []
         for i, block in enumerate(blocks):
             if ontable[block]:
@@ -96,8 +85,8 @@ class Blocks(PDDLGridEnv):
                 b = block
                 while b is not None:
                     objects.append(GridObject(name=b,
-                                              pos=(i, self.world.size[1]-j-1),
-                                              rgb=self.block_colors[b]))
+                                              pos=(i, gridsize[1]-j-1),
+                                              rgb=block_colors[b]))
                     b = on[b]
                     j += 1
             else:
@@ -105,17 +94,17 @@ class Blocks(PDDLGridEnv):
 
         if holding_block is not None:
             objects.append(GridObject(name=holding_block,
-                                      pos=(self.world.size[0] - 1, 0),
-                                      rgb=self.block_colors[holding_block]))
+                                      pos=(gridsize[0] - 1, 0),
+                                      rgb=block_colors[holding_block]))
 
-        return objects
+        return gridsize, objects
 
-    def get_atoms_from_reduced_set(self, atoms):
+    def get_atoms_from_subset(self, problem, atoms):
         # We asume that, if not stated otherwise, all blocks are on the table and clear, and the hand is empty
         ontable, on, holding_block = self._read_atoms(atoms)
 
         deduced_atoms = []
-        blocks = self.pddl.objects_by_type["object"]
+        blocks = problem.objects_by_type["object"]
         for b in blocks:
             # b is ontable if it's not on a block or in the hand
             if b not in on.values() and b != holding_block:
@@ -129,37 +118,46 @@ class Blocks(PDDLGridEnv):
         return atoms.union(deduced_atoms)
 
 
-def random_column_instance(domain, n_blocks):
+def get_random_column_problem_generator(domain, n_blocks):
     from pddl2gym.pyperplan_planner.pddl.pddl import Problem, Predicate
     from random import shuffle
-    assert list(domain.types.keys()) == ['object']
-    assert n_blocks <= 26
 
-    blocks = [chr(97+i) for i in range(n_blocks)]
-    block_type = domain.types['object']
+    def random_column_problem():
+        assert list(domain.types.keys()) == ['object']
+        assert n_blocks <= 26
 
-    column = blocks.copy()
-    shuffle(column)
+        blocks = [chr(97+i) for i in range(n_blocks)]
+        block_type = domain.types['object']
 
-    init = []
-    for b in blocks:
-        init.append(Predicate('ontable', [(b, block_type)]))
-        init.append(Predicate('clear', [(b, block_type)]))
-    init.append(Predicate('handempty', []))
+        column = blocks.copy()
+        shuffle(column)
 
-    goal = []
-    for i in range(len(blocks)-1):
-        goal.append(Predicate('on', [(column[i], block_type), (column[i+1], block_type)]))
+        init = []
+        for b in blocks:
+            init.append(Predicate('ontable', [(b, block_type)]))
+            init.append(Predicate('clear', [(b, block_type)]))
+        init.append(Predicate('handempty', []))
 
-    return Problem(name=f"random-column-{n_blocks}",
-                   domain=domain,
-                   objects={b: block_type for b in blocks},
-                   init=init,
-                   goal=goal)
+        goal = []
+        for i in range(len(blocks)-1):
+            goal.append(Predicate('on', [(column[i], block_type), (column[i+1], block_type)]))
+
+        return Problem(name=f"random-column-{n_blocks}",
+                       domain=domain,
+                       objects={b: block_type for b in blocks},
+                       init=init,
+                       goal=goal)
+
+    while True:
+        yield random_column_problem()
 
 
+def blocks(max_moves, domain_file, instance_file, path=None):
+    simulator = PDDLProblemSimulator(parse_problem(domain_file, instance_file, path))
+    return PDDLGridEnv(simulator=simulator, representation=Blocks(), fixed_init_state=True, max_moves=max_moves)
 
-def register_envs():
+
+def register_track1():
     registered_envs = {}
     for p in ["pddl/Blocks/Track1/Untyped", "pddl/Blocks/Track1/Untyped/Additional"]:
         path = os.path.join(os.path.dirname(__file__), p)
@@ -175,20 +173,46 @@ def register_envs():
                 try:
                     instance_path = os.path.join(path, problem_file)
                     gym.register(id=env_id,
-                                 entry_point='pddl2gym.blocks:Blocks',
+                                 entry_point='pddl2gym.blocks:blocks',
                                  nondeterministic=False,
                                  kwargs={"domain_file": domain_path,
-                                         "instance_file": instance_path})
+                                         "instance_file": instance_path,
+                                         "max_moves": 100})
                     registered_envs[env_id] = (domain_path, instance_path)
                 except gym.error.Error:
                     pass
-
     return registered_envs
 
 
+def blocks_random_column(n_blocks, max_moves, domain_file, path=None):
+    domain = parse_domain(domain_file, path)
+    problem_generator = get_random_column_problem_generator(domain, n_blocks=n_blocks)
+    simulator = PDDLDomainSimulator(domain=domain,
+                                    problem_generator=problem_generator)
+    return PDDLGridEnv(simulator=simulator, representation=Blocks(), fixed_init_state=False, max_moves=max_moves)
+
+
+def register_blocks_random_column():
+    registered_envs = {}
+    for i in range(4, 11):
+        try:
+            env_id = f"PDDL_Blocks_RandomColumn{i}-v0"
+            domain_path = os.path.join(os.path.dirname(__file__), "pddl/Blocks/Track1/Untyped/domain.pddl")
+            gym.register(id=env_id,
+                         entry_point='pddl2gym.blocks:blocks_random_column',
+                         nondeterministic=False,
+                         kwargs={"n_blocks": i,
+                                 "domain_file": domain_path,
+                                 "max_moves": 100})
+            registered_envs[env_id] = (domain_path, None)
+        except gym.error.Error:
+            pass
+    return registered_envs
+
 
 # Register environments
-registered_envs = register_envs()
+registered_envs = register_track1()
+registered_envs.update(register_blocks_random_column())
 
 
 if __name__ == "__main__":
