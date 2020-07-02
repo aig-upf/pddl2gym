@@ -8,6 +8,10 @@ import os
 
 
 class Blocks(PDDLRepresentation):
+    def __init__(self, fixed_grid_size=None):
+        self.fixed_grid_size = fixed_grid_size
+        super(Blocks, self).__init__()
+
     def get_n_actions(self, problem):
         return len(problem.objects_by_type["object"])
 
@@ -76,7 +80,11 @@ class Blocks(PDDLRepresentation):
         ontable, on, holding_block = self._read_atoms(atoms)
         blocks = problem.objects_by_type["object"]
         block_colors = {b: c for b, c in zip(blocks, self.colors)}
-        gridsize = (len(blocks)+1, len(blocks)+1)
+
+        gridsize = (len(blocks) + 1, len(blocks) + 1)
+        if self.fixed_grid_size is not None:
+            assert self.fixed_grid_size[0] >= gridsize[0] and self.fixed_grid_size[1] >= gridsize[1]
+            gridsize = self.fixed_grid_size
 
         objects = []
         for i, block in enumerate(blocks):
@@ -152,35 +160,50 @@ def get_random_column_problem_generator(domain, n_blocks):
         yield random_column_problem()
 
 
-def blocks(max_moves, domain_file, instance_file, path=None):
+def blocks(max_moves, fixed_grid_size, domain_file, instance_file, path=None):
     simulator = PDDLProblemSimulator(parse_problem(domain_file, instance_file, path))
-    return PDDLGridEnv(simulator=simulator, representation=Blocks(), fixed_init_state=True, max_moves=max_moves)
+    return PDDLGridEnv(simulator=simulator,
+                       representation=Blocks(fixed_grid_size=fixed_grid_size),
+                       fixed_init_state=True,
+                       max_moves=max_moves)
 
 
-def register_track1():
+
+def register_track1(fixed_grid_size=None):
+    # If fixed_grid_size is not None, all environments with #blocks < fixed_grid_size will be registered
     registered_envs = {}
     for p in ["pddl/Blocks/Track1/Untyped", "pddl/Blocks/Track1/Untyped/Additional"]:
         path = os.path.join(os.path.dirname(__file__), p)
         domain_path = os.path.join(path, "domain.pddl")
         for problem_file in sorted(files_in_dir(path)):
             if problem_file.endswith(".pddl") and problem_file != "domain.pddl":
-                if problem_file.startswith("probBLOCKS") or problem_file.startswith("probblocks"):
-                    _, i, j = problem_file.split(".")[0].split("-")  # output example: ['probBLOCKS', '4', '0']
+                assert problem_file.startswith("probBLOCKS") or problem_file.startswith("probblocks"),\
+                    f"Environment id not specified for problem file {problem_file}"
+
+                instance_path = os.path.join(path, problem_file)
+                _, i, j = problem_file.split(".")[0].split("-")  # output example: ['probBLOCKS', '4', '0']
+
+                if fixed_grid_size is None:
                     env_id = f'PDDL_Blocks_{i}_{j}-v0'
                 else:
-                    raise NotImplementedError(f"Environment id not specified for problem file {problem_file}")
+                    env_id = f'PDDL_Blocks{fixed_grid_size}_{i}_{j}-v0'
+                    if fixed_grid_size>=i:  # Only register envs with a valid grid size
+                        continue
 
                 try:
-                    instance_path = os.path.join(path, problem_file)
                     gym.register(id=env_id,
                                  entry_point='pddl2gym.blocks:blocks',
                                  nondeterministic=False,
-                                 kwargs={"domain_file": domain_path,
-                                         "instance_file": instance_path,
-                                         "max_moves": 100})
+                                 kwargs={'max_moves': 100,
+                                         'fixed_grid_size': fixed_grid_size,
+                                         'domain_file': domain_path,
+                                         'instance_file': instance_path
+                                         }
+                                 )
                     registered_envs[env_id] = (domain_path, instance_path)
                 except gym.error.Error:
                     pass
+
     return registered_envs
 
 
@@ -212,6 +235,7 @@ def register_blocks_random_column():
 
 # Register environments
 registered_envs = register_track1()
+registered_envs.update(register_track1(8))
 registered_envs.update(register_blocks_random_column())
 
 
