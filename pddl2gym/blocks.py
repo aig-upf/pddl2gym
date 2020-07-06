@@ -188,7 +188,7 @@ def register_track1(fixed_n_actions=None):
                     env_id = f'PDDL_Blocks_{i}_{j}-v0'
                 else:
                     env_id = f'PDDL_Blocks{fixed_n_actions}_{i}_{j}-v0'
-                    if int(i) >= fixed_n_actions:  # Only register envs with a valid grid size
+                    if int(i) > fixed_n_actions:  # Only register envs with a valid grid size
                         continue
 
                 try:
@@ -278,7 +278,7 @@ def register_blocks_left_column(fixed_n_actions=None):
                 env_id = f"PDDL_Blocks_LeftColumn{i}-v0"
             else:
                 env_id = f"PDDL_Blocks{fixed_n_actions}_LeftColumn{i}-v0"
-                if int(i) >= fixed_n_actions:  # Only register envs with a valid grid size
+                if int(i) > fixed_n_actions:  # Only register envs with a valid grid size
                     continue
 
             domain_path = os.path.join(os.path.dirname(__file__), "pddl/Blocks/Track1/Untyped/domain.pddl")
