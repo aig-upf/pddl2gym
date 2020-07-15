@@ -19,12 +19,12 @@ class PDDLProblemSimulator:
         return self.task.goals
 
     def apply(self, state, action):
-        if type(action) is str:  # Str action
+        if isinstance(action, str):  # Str action
             action = to_tuple(action)
         try:
             op = self.operators[action]
         except KeyError:
-            raise Exception(f"Action {action} not in possible operators (grounded actions).")
+            raise Exception(f"Action {action} not in possible operators (grounded actions): {self.operators.keys()}")
         if not op.applicable(state):
             raise Exception(f"Action {action} not applicable in state {state}")
         return op.apply(state)

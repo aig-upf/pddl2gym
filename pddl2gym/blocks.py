@@ -208,40 +208,47 @@ def register_track1(fixed_n_actions=None):
     return registered_envs
 
 
-def blocks_random_column(n_blocks, max_moves, domain_file, path=None):
+def blocks_random_column(n_blocks, max_moves, fixed_n_actions, domain_file, path=None):
     domain = parse_domain(domain_file, path)
     problem_generator = get_random_column_problem_generator(domain, n_blocks=n_blocks)
     simulator = PDDLDomainSimulator(domain=domain,
                                     problem_generator=problem_generator)
-    return PDDLGridEnv(simulator=simulator, representation=Blocks(), fixed_init_state=False, max_moves=max_moves)
+    return PDDLGridEnv(simulator=simulator, representation=Blocks(fixed_n_actions=fixed_n_actions), fixed_init_state=False, max_moves=max_moves)
 
 
-def register_blocks_random_column():
+def register_blocks_random_column(fixed_n_actions=None):
     registered_envs = {}
-    for i in range(4, 11):
+    for i in range(2, 11):
         try:
-            env_id = f"PDDL_Blocks_RandomColumn{i}-v0"
+            if fixed_n_actions is None:
+                env_id = f"PDDL_Blocks_RandomColumn{i}-v0"
+            else:
+                env_id = f"PDDL_Blocks{fixed_n_actions}_RandomColumn{i}-v0"
+                if int(i) > fixed_n_actions:  # Only register envs with a valid grid size
+                    continue
+
             domain_path = os.path.join(os.path.dirname(__file__), "pddl/Blocks/Track1/Untyped/domain.pddl")
             gym.register(id=env_id,
                          entry_point='pddl2gym.blocks:blocks_random_column',
                          nondeterministic=False,
                          kwargs={"n_blocks": i,
                                  "domain_file": domain_path,
-                                 "max_moves": 100})
+                                 "max_moves": 100,
+                                 "fixed_n_actions": fixed_n_actions})
             registered_envs[env_id] = (domain_path, None)
         except gym.error.Error:
             pass
     return registered_envs
 
 
-def blocks_left_column(n_blocks, max_moves, fixed_n_actions, domain_file, path=None):
+def blocks_fixed_column(n_blocks, column_idx, max_moves, fixed_n_actions, domain_file, path=None):
     from pddl2gym.pyperplan_planner.pddl.pddl import Problem, Predicate
 
     domain = parse_domain(domain_file, path)
 
     assert list(domain.types.keys()) == ['object']
     assert n_blocks <= 26
-    assert n_blocks <= fixed_n_actions
+    assert fixed_n_actions is None or n_blocks <= fixed_n_actions
 
     blocks = [chr(97+i) for i in range(n_blocks)]
     block_type = domain.types['object']
@@ -253,9 +260,11 @@ def blocks_left_column(n_blocks, max_moves, fixed_n_actions, domain_file, path=N
     init.append(Predicate('handempty', []))
 
     goal = []
-    for i in range(len(blocks)-1):
-        # print(blocks[i])
-        goal.append(Predicate('on', [(blocks[i+1], block_type), (blocks[i], block_type)]))
+    goal_column = blocks.copy()
+    bottom = goal_column.pop(column_idx)
+    goal.append(Predicate('on', [(goal_column[0], block_type), (bottom, block_type)]))
+    for i in range(len(goal_column)-1):
+        goal.append(Predicate('on', [(goal_column[i+1], block_type), (goal_column[i], block_type)]))
 
     problem = Problem(name=f"left-column-{n_blocks}",
                       domain=domain,
@@ -270,37 +279,40 @@ def blocks_left_column(n_blocks, max_moves, fixed_n_actions, domain_file, path=N
                        fixed_init_state=True,
                        max_moves=max_moves)
 
-def register_blocks_left_column(fixed_n_actions=None):
+def register_blocks_fixed_column(fixed_n_actions=None):
     registered_envs = {}
-    for i in range(4, 11):
-        try:
-            if fixed_n_actions is None:
-                env_id = f"PDDL_Blocks_LeftColumn{i}-v0"
-            else:
-                env_id = f"PDDL_Blocks{fixed_n_actions}_LeftColumn{i}-v0"
-                if int(i) > fixed_n_actions:  # Only register envs with a valid grid size
-                    continue
+    for i in range(2, 11):
+        for column_idx in range(i):
+            try:
+                if fixed_n_actions is None:
+                    env_id = f"PDDL_Blocks_FixedColumn{i}_{column_idx}-v0"
+                else:
+                    env_id = f"PDDL_Blocks{fixed_n_actions}_FixedColumn{i}_{column_idx}-v0"
+                    if int(i) > fixed_n_actions:  # Only register envs with a valid grid size
+                        continue
 
-            domain_path = os.path.join(os.path.dirname(__file__), "pddl/Blocks/Track1/Untyped/domain.pddl")
-            gym.register(id=env_id,
-                         entry_point='pddl2gym.blocks:blocks_left_column',
-                         nondeterministic=False,
-                         kwargs={"n_blocks": i,
-                                 "domain_file": domain_path,
-                                 'fixed_n_actions': fixed_n_actions,
-                                 "max_moves": 100})
-            registered_envs[env_id] = (domain_path, None)
-        except gym.error.Error:
-            pass
+                domain_path = os.path.join(os.path.dirname(__file__), "pddl/Blocks/Track1/Untyped/domain.pddl")
+                gym.register(id=env_id,
+                             entry_point='pddl2gym.blocks:blocks_fixed_column',
+                             nondeterministic=False,
+                             kwargs={"n_blocks": i,
+                                     "domain_file": domain_path,
+                                     'column_idx': column_idx,
+                                     'fixed_n_actions': fixed_n_actions,
+                                     "max_moves": 100})
+                registered_envs[env_id] = (domain_path, None)
+            except gym.error.Error:
+                pass
     return registered_envs
 
 
 # Register environments
 registered_envs = register_track1()
 registered_envs.update(register_track1(8))
-registered_envs.update(register_blocks_left_column())
-registered_envs.update(register_blocks_left_column(8))
+registered_envs.update(register_blocks_fixed_column())
+registered_envs.update(register_blocks_fixed_column(8))
 registered_envs.update(register_blocks_random_column())
+registered_envs.update(register_blocks_random_column(8))
 
 
 if __name__ == "__main__":

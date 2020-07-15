@@ -16,7 +16,8 @@ class PDDLEnv(gym.Env):  # TODO: use gym.GoalEnv?
         return atoms, reward, done, {}
 
     def reset(self):
-        return self.simulator.reset()
+        self.state = self.simulator.reset()
+        return self.simulator.get_atoms(self.state)
 
     def clone_state(self):
         return self.state
