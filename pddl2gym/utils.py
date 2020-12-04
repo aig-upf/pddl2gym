@@ -1,6 +1,6 @@
 from collections import defaultdict
 import os
-from pddl.parser import Parser
+from pyperplan.pddl.parser import Parser
 
 
 def parse_domain(domain_file, path=None):
@@ -22,7 +22,7 @@ def parse_problem(domain_file, problem_file, path=None):
 
 
 def to_tuple(str_predicate):
-    s = str_predicate[1:-1] if str_predicate[0] == '(' else str_predicate
+    s = str_predicate.lstrip('(').rstrip(')').strip()
     res = s.split(" ")
     return res[0], tuple(res[1:])
 

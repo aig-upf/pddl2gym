@@ -1,4 +1,4 @@
-from pddl2gym.pyperplan_planner.grounding import ground
+from pyperplan.grounding import ground
 from collections import defaultdict
 from pddl2gym.utils import to_tuple, to_string, get_objects_by_type
 
