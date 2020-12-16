@@ -1,4 +1,5 @@
-from pyperplan.grounding import ground
+from pyperplan.grounding import ground, _get_partial_state
+from pyperplan.pddl.pddl import Predicate
 from collections import defaultdict
 from pddl2gym.utils import to_tuple, to_string, get_objects_by_type
 
@@ -17,6 +18,12 @@ class PDDLProblemSimulator:
 
     def get_goal(self):
         return self.task.goals
+
+    def change_goal(self, g):
+        if type(g) is not list:
+            g = [g]
+        assert type(g[0]) is Predicate
+        self.task.goals = _get_partial_state(g)
 
     def apply(self, state, action):
         if isinstance(action, str):  # Str action
