@@ -128,7 +128,7 @@ class Blocks(PDDLRepresentation):
 
 
 def get_random_column_problem_generator(domain, n_blocks):
-    from pddl2gym.pyperplan_planner.pddl.pddl import Problem, Predicate
+    from pyperplan.pddl.pddl import Problem, Predicate
     from random import shuffle
 
     def random_column_problem():
@@ -242,7 +242,7 @@ def register_blocks_random_column(fixed_n_actions=None):
 
 
 def blocks_fixed_column(n_blocks, column_idx, max_moves, fixed_n_actions, domain_file, path=None):
-    from pddl2gym.pyperplan_planner.pddl.pddl import Problem, Predicate
+    from pyperplan.pddl.pddl import Problem, Predicate
 
     domain = parse_domain(domain_file, path)
 
